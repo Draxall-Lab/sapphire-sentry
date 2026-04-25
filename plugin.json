@@ -1,0 +1,13 @@
+{
+  "name": "plugin-name",
+  "display_name": "My Super Amazing Plugin",
+  "short_name": "My Plugin",
+  "version": "0.1.0",
+  "description": "Does plugin stuff.",
+  "author": "Draxall",
+  "capabilities": {
+    "tools": [
+      "tools/my-plugin.py"
+    ]
+  }
+}
