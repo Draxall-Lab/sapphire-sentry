@@ -1,4 +1,26 @@
 // Sapphire Sentry - app/index.js
+import {
+  escapeHtml,
+  formatGroupTitle,
+  groupSnapshots,
+  sortByFrequency,
+  sortHistoryItems,
+  totalCount,
+} from "./utils.js";
+
+import {
+  runScanRequest,
+  loadSnapshotGroupsRequest,
+  loadRulesRequest,
+  createIgnoreRuleRequest,
+  deleteRuleRequest
+} from "./api.js";
+
+import {
+  renderSummary,
+  renderSnapshots,
+  createSnapshotCard
+} from "./render.js";
 
 let appContainer = null;
 let lastSnapshots = [];
@@ -364,7 +386,7 @@ export function render(container) {
     .querySelector("#sentry-group-mode")
     .addEventListener("change", (event) => {
       currentGroupMode = event.target.value;
-      renderSnapshots(lastSnapshots);
+      renderSnapshots(appContainer, lastSnapshots, currentGroupMode, ignoreSnapshot);
       renderHistory(lastHistoryGroups);
     });
 
@@ -390,26 +412,12 @@ async function runScan() {
 
   try {
     const csrfToken = document.querySelector("meta[name='csrf-token']")?.content;
-
-    const res = await fetch("/api/plugin/sapphire-sentry/scan", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {})
-      },
-      body: JSON.stringify({})
-    });
-
-    if (!res.ok) {
-      throw new Error(`Request failed: ${res.status}`);
-    }
-
-    const data = await res.json();
+    const data = await runScanRequest(csrfToken);
 
     lastSnapshots = Array.isArray(data.snapshots) ? data.snapshots : [];
 
-    renderSummary(data.summary || {});
-    renderSnapshots(lastSnapshots);
+    renderSummary(appContainer, data.summary || {});
+    renderSnapshots(appContainer, lastSnapshots, currentGroupMode, ignoreSnapshot);
 
     statusEl.textContent = `Scan complete: ${data.scan_id || "unknown scan"}`;
   } catch (err) {
@@ -421,137 +429,6 @@ async function runScan() {
 
   await loadSnapshotHistory();
   await loadRules();
-}
-
-function renderSummary(summary) {
-  appContainer.querySelector("#sentry-stat-sources").textContent =
-    summary.sources_scanned ?? 0;
-
-  appContainer.querySelector("#sentry-stat-visible").textContent =
-    summary.visible_snapshots ?? 0;
-
-  appContainer.querySelector("#sentry-stat-suppressed").textContent =
-    summary.suppressed_snapshots ?? 0;
-
-  appContainer.querySelector("#sentry-stat-rules").textContent =
-    summary.stored_rules ?? 0;
-}
-
-
-function renderSnapshots(snapshots) {
-  const resultsEl = appContainer.querySelector("#sentry-results");
-
-  if (!snapshots.length) {
-    resultsEl.innerHTML = `<div class="sentry-empty">No active incidents found.</div>`;
-    return;
-  }
-
-  resultsEl.innerHTML = "";
-
-  if (currentGroupMode === "category") {
-    renderGroupedSnapshots(resultsEl, snapshots, "category");
-    return;
-  }
-
-  if (currentGroupMode === "source") {
-    renderGroupedSnapshots(resultsEl, snapshots, "source");
-    return;
-  }
-
-  renderFlatSnapshots(resultsEl, snapshots);
-}
-
-function renderFlatSnapshots(container, snapshots) {
-  const sorted = sortByFrequency(snapshots);
-
-  for (const snap of sorted) {
-    container.appendChild(createSnapshotCard(snap));
-  }
-}
-
-function renderGroupedSnapshots(container, snapshots, key) {
-  const groups = groupSnapshots(snapshots, key);
-
-  const sortedGroupNames = Object.keys(groups).sort((a, b) => {
-    const aTotal = totalCount(groups[a]);
-    const bTotal = totalCount(groups[b]);
-
-    if (bTotal !== aTotal) {
-      return bTotal - aTotal;
-    }
-
-    return a.localeCompare(b);
-  });
-
-  for (const groupName of sortedGroupNames) {
-    const groupItems = sortByFrequency(groups[groupName]);
-
-    const heading = document.createElement("h3");
-    heading.className = "sentry-group-title";
-    heading.innerHTML = `
-      ${escapeHtml(formatGroupTitle(groupName))}
-      <span class="sentry-group-count">
-        ${groupItems.length} pattern${groupItems.length === 1 ? "" : "s"},
-        x${totalCount(groupItems)} total
-      </span>
-    `;
-
-    const groupEl = document.createElement("div");
-    groupEl.className = "sentry-group";
-
-    for (const snap of groupItems) {
-      groupEl.appendChild(createSnapshotCard(snap));
-    }
-
-    container.appendChild(heading);
-    container.appendChild(groupEl);
-  }
-}
-
-function createSnapshotCard(snap) {
-  const card = document.createElement("div");
-  card.className = "sentry-card";
-
-  const category = snap.category || "unknown";
-  const source = snap.source || "unknown";
-  const count = snap.count ?? 1;
-  const sourceClass = `source-${(source || "unknown").toLowerCase()}`;
-
-  card.innerHTML = `
-    <div class="sentry-card-top">
-      <div class="sentry-tags">
-        <span class="sentry-tag ${escapeHtml(category)}">${escapeHtml(category.toUpperCase())}</span>
-        <span class="sentry-tag ${sourceClass}">
-          ${escapeHtml(source)}
-        </span>
-      </div>
-      <div class="sentry-count">x${escapeHtml(String(count))}</div>
-    </div>
-
-    <div class="sentry-pattern">
-      ${escapeHtml(snap.normalised_pattern || "No pattern available")}
-    </div>
-
-    <div class="sentry-actions">
-      <button class="sentry-btn" disabled>Analyse</button>
-      <button class="sentry-btn sentry-ignore-btn" type="button" data-snapshot-id="${escapeHtml(snap.id || "")}">
-        Ignore
-      </button>
-      <button class="sentry-btn" disabled>Snooze</button>
-    </div>
-  `;
-
-  
-   
-const ignoreBtn = card.querySelector(".sentry-ignore-btn");
-
-if (ignoreBtn) {
-  ignoreBtn.addEventListener("click", () => {
-    ignoreSnapshot(snap);
-  });
-}
-
-  return card;
 }
 
 async function ignoreSnapshot(snapshot) {
@@ -566,31 +443,11 @@ async function ignoreSnapshot(snapshot) {
 
     const csrfToken = document.querySelector("meta[name='csrf-token']")?.content;
 
-    const res = await fetch("/api/plugin/sapphire-sentry/rules/create", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {})
-      },
-      body: JSON.stringify({
-        snapshot_id: snapshot.id || null,
-        snapshot: {
-          id: snapshot.id || null,
-          source: snapshot.source,
-          category: snapshot.category,
-          pattern_key: snapshot.pattern_key,
-          normalised_pattern: snapshot.normalised_pattern
-        },
-        action: "ignore",
-        reason: "Ignored from Sentry UI"
-      })
-    });
+    const data = await createIgnoreRuleRequest(snapshot, csrfToken);
 
-    if (!res.ok) {
-      throw new Error(`Request failed: ${res.status}`);
-    }
-
-    const data = await res.json();
+    if (!data.ok) {
+      throw new Error(data.error || "Failed to create rule");
+  }
 
     if (!data.ok) {
       throw new Error(data.error || "Failed to create rule");
@@ -607,93 +464,11 @@ async function ignoreSnapshot(snapshot) {
   }
 }
 
-function sortByFrequency(snapshots) {
-  return [...snapshots].sort((a, b) => {
-    const countDiff = (b.count ?? 0) - (a.count ?? 0);
-
-    if (countDiff !== 0) {
-      return countDiff;
-    }
-
-    const sourceA = a.source || "";
-    const sourceB = b.source || "";
-
-    if (sourceA !== sourceB) {
-      return sourceA.localeCompare(sourceB);
-    }
-
-    return (a.normalised_pattern || "").localeCompare(b.normalised_pattern || "");
-  });
-}
-
-function sortHistoryItems(items) {
-  const safeItems = Array.isArray(items) ? items : [];
-
-  if (currentGroupMode === "category") {
-    return [...safeItems].sort((a, b) =>
-      (a.category || "").localeCompare(b.category || "") ||
-      (b.count ?? 0) - (a.count ?? 0)
-    );
-  }
-
-  if (currentGroupMode === "source") {
-    return [...safeItems].sort((a, b) =>
-      (a.source || "").localeCompare(b.source || "") ||
-      (b.count ?? 0) - (a.count ?? 0)
-    );
-  }
-
-  return sortByFrequency(safeItems);
-}
-
-function groupSnapshots(snapshots, key) {
-  return snapshots.reduce((groups, snap) => {
-    const value = snap[key] || "unknown";
-
-    if (!groups[value]) {
-      groups[value] = [];
-    }
-
-    groups[value].push(snap);
-    return groups;
-  }, {});
-}
-
-function totalCount(snapshots) {
-  return snapshots.reduce((total, snap) => total + (snap.count ?? 0), 0);
-}
-
-function formatGroupTitle(value) {
-  if (!value) {
-    return "Unknown";
-  }
-
-  return String(value)
-    .replaceAll("_", " ")
-    .replaceAll("-", " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
 async function loadSnapshotHistory() {
   const el = appContainer.querySelector("#sentry-history");
 
   try {
-    const res = await fetch("/api/plugin/sapphire-sentry/snapshot-groups");
-
-    if (!res.ok) {
-      throw new Error(`Request failed: ${res.status}`);
-    }
-
-    const data = await res.json();
+    const data = await loadSnapshotGroupsRequest();
 
     lastHistoryGroups = data.snapshot_groups || [];
     renderHistory(lastHistoryGroups);
@@ -707,9 +482,7 @@ async function loadRules() {
   const el = appContainer.querySelector("#sentry-rules");
 
   try {
-    const res = await fetch("/api/plugin/sapphire-sentry/rules");
-    const data = await res.json();
-
+    const data = await loadRulesRequest();
     renderRules(data.rules || []);
   } catch (err) {
     el.innerHTML = `<div class="sentry-empty">Failed to load rules</div>`;
@@ -754,7 +527,7 @@ function renderHistory(groups) {
     body.hidden = !isOpen;
     wrapper.classList.toggle("open", isOpen);
 
-    const sortedItems = sortHistoryItems(group.items || []);
+    const sortedItems = sortHistoryItems(group.items || [], currentGroupMode);
 
     for (const snap of sortedItems) {
       body.appendChild(createSnapshotCard(snap));
@@ -834,21 +607,7 @@ async function restoreRule(ruleId) {
 
     const csrfToken = document.querySelector("meta[name='csrf-token']")?.content;
 
-    const res = await fetch(`/api/plugin/sapphire-sentry/rules/${ruleId}`, {
-      method: "DELETE",
-      headers: {
-        ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {})
-      }
-    });
-
-    console.log("[SENTRY] Restore response:", res.status);
-
-    if (!res.ok) {
-      throw new Error(`Request failed: ${res.status}`);
-    }
-
-    const data = await res.json();
-    console.log("[SENTRY] Restore data:", data);
+    const data = await deleteRuleRequest(ruleId, csrfToken);
 
     if (!data.ok) {
       throw new Error(data.error || "Rule was not restored");
