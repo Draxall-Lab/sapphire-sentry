@@ -1,13 +1,64 @@
 {
-  "name": "plugin-name",
-  "display_name": "My Super Amazing Plugin",
-  "short_name": "My Plugin",
+  "name": "sapphire-sentry",
+  "display_name": "Sapphire Sentry",
+  "short_name": "Sentry",
   "version": "0.1.0",
-  "description": "Does plugin stuff.",
+  "description": "Incident-based awareness for Sapphire. Detects notable log events, captures context snapshots, and helps you decide what matters.",
   "author": "Draxall",
+  "license": "MIT",
+  "icon": "🛡️",
+  "default_enabled": true,
   "capabilities": {
-    "tools": [
-      "tools/my-plugin.py"
+    "routes": [
+      {
+        "method": "POST",
+        "path": "scan",
+        "handler": "routes/scan.py:run_scan_route"
+      },
+      {
+        "method": "GET",
+        "path": "snapshots",
+        "handler": "routes/incidents.py:get_snapshots"
+      },
+      {
+        "method": "GET",
+        "path": "rules",
+        "handler": "routes/incidents.py:get_rules"
+      },
+      {
+        "method": "POST",
+        "path": "rules/delete",
+        "handler": "routes/incidents.py:remove_rule"
+      },
+      {
+        "method": "GET",
+        "path": "snapshot-groups",
+        "handler": "routes/incidents.py:get_snapshot_groups"
+      },
+      {
+        "method": "POST",
+        "path": "rules/create",
+        "handler": "routes/incidents.py:create_rule"
+      },
+      {
+        "method": "DELETE",
+        "path": "rules/{rule_id}",
+        "handler": "routes/incidents.py:delete_rule_route"
+    }
+    ],
+    "app": {
+      "label": "Sapphire Sentry",
+      "icon": "🛡️",
+      "description": "Incident snapshots and noise filtering for Sapphire logs"
+    },
+    "settings": [
+      {
+        "key": "sapphire_root",
+        "type": "string",
+        "label": "Sapphire Root",
+        "default": "",
+        "help": "Optional override path to Sapphire root folder."
+      }
     ]
   }
 }
