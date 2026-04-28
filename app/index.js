@@ -22,6 +22,8 @@ import {
   createSnapshotCard
 } from "./render.js";
 
+import { wireEvents } from "./events.js";
+
 let appContainer = null;
 let lastSnapshots = [];
 let currentGroupMode = "frequency";
@@ -378,17 +380,28 @@ export function render(container) {
     </div>
   `;
 
-  appContainer
-    .querySelector("#sentry-scan-btn")
-    .addEventListener("click", runScan);
+  wireEvents({
+  appContainer,
+  runScan,
+  setGroupMode: (mode) => {
+    currentGroupMode = mode;
+  },
+  rerenderSnapshots: () => {
+    renderSnapshots(appContainer, lastSnapshots, currentGroupMode, ignoreSnapshot);
+  },
+  rerenderHistory: () => {
+    renderHistory(lastHistoryGroups);
+  },
+  onIgnore: async (patternKey) => {
+    const snap = lastSnapshots.find(s => s.pattern_key === patternKey);
+    if (!snap) return;
 
-  appContainer
-    .querySelector("#sentry-group-mode")
-    .addEventListener("change", (event) => {
-      currentGroupMode = event.target.value;
-      renderSnapshots(appContainer, lastSnapshots, currentGroupMode, ignoreSnapshot);
-      renderHistory(lastHistoryGroups);
-    });
+    await ignoreSnapshot(snap);
+  },
+  onRestore: async (ruleId) => {
+    await restoreRule(ruleId);
+  },
+});
 
   loadSnapshotHistory();
   loadRules();
@@ -571,32 +584,12 @@ el.innerHTML = rules.map(r => `
     <button 
       class="sentry-btn ss-rule-restore" 
       type="button"
-      data-rule-id="${r.id}"
-   >
-     Restore
-   </button>
+      data-restore-rule-id="${r.id}"
+    >
+      Restore
+    </button>
   </div>
 `).join("");
-
-  el.querySelectorAll(".ss-rule-restore").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const ruleId = btn.dataset.ruleId;
-      console.log("[SENTRY] Restore clicked:", ruleId);
-
-      if (!ruleId) return;
-
-      btn.disabled = true;
-      btn.textContent = "Restoring...";
-
-      try {
-        await restoreRule(ruleId);
-      } catch (err) {
-        console.error("[SENTRY] Restore button handler failed", err);
-        btn.disabled = false;
-        btn.textContent = "Restore";
-     }
-    });
-  });
 }
 
 async function restoreRule(ruleId) {

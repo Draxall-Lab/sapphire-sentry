@@ -116,22 +116,17 @@ export function createSnapshotCard(snap, onIgnoreSnapshot) {
 
     <div class="sentry-actions">
       <button class="sentry-btn" disabled>Analyse</button>
-      <button class="sentry-btn sentry-ignore-btn" type="button" data-snapshot-id="${escapeHtml(snap.id || "")}">
+      <button 
+        class="sentry-btn sentry-ignore-btn" 
+        type="button"
+        data-ignore="1"
+        data-pattern-key="${snap.pattern_key || ""}"
+      >
         Ignore
       </button>
       <button class="sentry-btn" disabled>Snooze</button>
     </div>
   `;
-
-  
-   
-    const ignoreBtn = card.querySelector(".sentry-ignore-btn");
-
-    if (ignoreBtn && typeof onIgnoreSnapshot === "function") {
-      ignoreBtn.addEventListener("click", () => {
-        onIgnoreSnapshot(snap);
-   });
-}
 
   return card;
 }
