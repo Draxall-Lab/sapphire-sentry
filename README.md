@@ -1,35 +1,73 @@
-# My Plugin for Sapphire
+# Sapphire Sentry
 
-Short summary of what this plugin does.
+Sapphire Sentry is a plugin for Sapphire that transforms raw logs into structured, actionable incident snapshots.
 
-## What it does
+It focuses on detecting patterns, grouping noise, and giving users control over what matters.
 
-- Adds one Sapphire tool
-- Designed as a minimal plugin starter
-- Useful for learning plugin workflow and testing
+---
 
-## Files
+## Core Concept
 
-- `plugin.json` - plugin manifest
-- `tools/my_tool.py` - tool implementation
+Sentry follows a simple flow:
 
-## Install
+Detection → Organisation → Control → Memory
 
-1. Push this repo to GitHub
-2. In Sapphire, open Plugin Manager
-3. Install from GitHub URL
-4. Enable the plugin if needed
+- **Detection**: Scan logs and identify meaningful events
+- **Organisation**: Group incidents by frequency, category, or source
+- **Control**: Ignore or suppress known noise
+- **Memory**: Store snapshots and rules for future context
 
-## Usage
+---
 
-Ask Sapphire something like:
+## Features
 
-- "Use my tool"
-- "Run my tool action"
-- "Test this plugin"
+- Run Scan to generate incident snapshots
+- Multiple view modes:
+  - Frequency
+  - Category
+  - Source
+- Snapshot history with grouped scans
+- Ignore / Restore rules
+- Suppressed incidents filtering
+- Visual distinction for suppressed rules
 
-## Notes
+---
 
-- Minimal plugin scaffold
-- No UI, routes, daemon, hooks, or settings
-- Unsigned plugin for development/testing
+## Stability (v0.5.0)
+
+Sentry is designed to remain stable under heavy interaction:
+
+- Handles API rate limiting (429) gracefully
+- Prevents duplicate actions and race conditions
+- Recovers cleanly from failed refresh calls
+- Provides clear UI feedback for all states
+
+---
+
+## UI Feedback States
+
+| Message           | Meaning                         |
+|------------------|---------------------------------|
+| Please wait…     | Frontend cooldown               |
+| Rate limited…    | Backend rate limit (429)        |
+| Ignoring…        | Action in progress              |
+| Restoring…       | Action in progress              |
+
+---
+
+## Roadmap
+
+- Snooze rules (time-based suppression)
+- Rule expiry handling
+- Enhanced status messaging
+- Deeper analysis tooling
+
+---
+
+## Philosophy
+
+Sentry is not a dashboard.
+
+It’s a control layer over log noise.
+
+The goal is not more data - it’s clarity.

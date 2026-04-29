@@ -1,3 +1,17 @@
+async function assertOk(res) {
+  if (res.status === 429) {
+    const err = new Error("Rate limit hit");
+    err.status = 429;
+    throw err;
+  }
+
+  if (!res.ok) {
+    const err = new Error(`Request failed: ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+}
+
 export async function runScanRequest(csrfToken) {
   const res = await fetch("/api/plugin/sapphire-sentry/scan", {
     method: "POST",
@@ -8,9 +22,7 @@ export async function runScanRequest(csrfToken) {
     body: JSON.stringify({})
   });
 
-  if (!res.ok) {
-    throw new Error(`Request failed: ${res.status}`);
-  }
+  await assertOk(res);
 
   return res.json();
 }
@@ -18,9 +30,7 @@ export async function runScanRequest(csrfToken) {
 export async function loadSnapshotGroupsRequest() {
   const res = await fetch("/api/plugin/sapphire-sentry/snapshot-groups");
 
-  if (!res.ok) {
-    throw new Error(`Request failed: ${res.status}`);
-  }
+  await assertOk(res);
 
   return res.json();
 }
@@ -28,9 +38,7 @@ export async function loadSnapshotGroupsRequest() {
 export async function loadRulesRequest() {
   const res = await fetch("/api/plugin/sapphire-sentry/rules");
 
-  if (!res.ok) {
-    throw new Error(`Request failed: ${res.status}`);
-  }
+  await assertOk(res);
 
   return res.json();
 }
@@ -56,9 +64,7 @@ export async function createIgnoreRuleRequest(snapshot, csrfToken) {
     })
   });
 
-  if (!res.ok) {
-    throw new Error(`Request failed: ${res.status}`);
-  }
+  await assertOk(res);
 
   return res.json();
 }
@@ -71,9 +77,7 @@ export async function deleteRuleRequest(ruleId, csrfToken) {
     }
   });
 
-  if (!res.ok) {
-    throw new Error(`Request failed: ${res.status}`);
-  }
+  await assertOk(res);
 
   return res.json();
 }

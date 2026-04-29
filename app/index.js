@@ -22,7 +22,39 @@ import {
   createSnapshotCard
 } from "./render.js";
 
-import { wireEvents } from "./events.js";
+import { 
+  wireEvents,
+  is429Error,
+  startRateLimitCooldown
+} from "./events.js";
+
+let pendingRefreshTimer = null;
+
+function scheduleRefreshAfterRateLimit() {
+  clearTimeout(pendingRefreshTimer);
+
+  const statusEl = appContainer.querySelector("#sentry-status");
+
+  pendingRefreshTimer = setTimeout(async () => {
+    try {
+      if (statusEl) {
+        statusEl.textContent = "Refreshing after cooldown...";
+      }
+
+      await runScan();
+
+      if (statusEl) {
+        statusEl.textContent = "Refreshed.";
+      }
+    } catch (err) {
+      console.error("[SENTRY] Delayed refresh failed", err);
+
+      if (statusEl) {
+        statusEl.textContent = "Refresh failed after cooldown. Please refresh manually.";
+      }
+    }
+  }, 60500); // RATE_LIMIT_COOLDOWN_MS + small buffer
+}
 
 let appContainer = null;
 let lastSnapshots = [];
@@ -321,13 +353,66 @@ export function render(container) {
           color: var(--text-muted, #888);
           padding: 12px 0;
         }
+
+        .sentry-status-help {
+          margin-top: 0.75rem;
+          color: #a8b3cf; /* softer than main text */
+          opacity: 0.85;
+          font-size: 0.85rem;
+        }
+
+        .sentry-status-help .help-intro {
+           margin-bottom: 0.35rem;
+        }
+
+        .sentry-status-help ul {
+          margin: 0;
+          padding-left: 1.2rem;
+        }
+
+        .sentry-status-help li {
+          margin: 0.2rem 0;
+        }
+
+        .sentry-status-help li::marker {
+          color: var(--ld-accent-secondary); /* your blue accent */
+        }
+
+        .sentry-rule-card {
+          opacity: 0.85;
+          border-style: dashed;
+        }
+
+        .sentry-tag.rule-status {
+          background: rgba(255,255,255,0.05);
+          border-color: rgba(255,255,255,0.15);
+          color: #aaa;
+          font-style: italic;
+        }
+
+        .sentry-restore-btn {
+          border-color: var(--accent, #2d7dff);
+          color: var(--accent, #2d7dff);
+        }
+
+        .sentry-restore-btn:hover {
+          background: rgba(45, 125, 255, 0.15);
+        }
       </style>
 
       <div class="sentry-header">
         <div class="sentry-title">
           <h1>🛡️ Sapphire Sentry</h1>
           <p>Incident snapshots and noise filtering for Sapphire logs.</p>
-        </div>
+
+          <div class="sentry-status-help">
+            <p class="help-intro">Actions may briefly pause if used quickly:</p>
+            <ul>
+              <li><strong>“Please wait…”</strong> = processing</li>
+              <li><strong>“Rate limited…”</strong> = cooling down</li>
+            </ul>
+          </div>
+       </div>
 
         <div class="sentry-controls">
           <button id="sentry-scan-btn" class="sentry-btn primary">Run Scan</button>
@@ -433,6 +518,22 @@ async function runScan() {
     renderSnapshots(appContainer, lastSnapshots, currentGroupMode, ignoreSnapshot);
 
     statusEl.textContent = `Scan complete: ${data.scan_id || "unknown scan"}`;
+
+try {
+  await loadSnapshotHistory();
+  await loadRules();
+} catch (err) {
+  if (is429Error(err)) {
+    statusEl.textContent =
+      "Rate limited while refreshing history/rules. Sentry will reload shortly.";
+
+    startRateLimitCooldown();
+    scheduleRefreshAfterRateLimit();
+    return;
+  }
+
+  throw err;
+}
   } catch (err) {
     statusEl.textContent = "Error running scan.";
     console.error(err);
@@ -440,8 +541,7 @@ async function runScan() {
     scanBtn.disabled = false;
   }
 
-  await loadSnapshotHistory();
-  await loadRules();
+
 }
 
 async function ignoreSnapshot(snapshot) {
@@ -469,11 +569,15 @@ async function ignoreSnapshot(snapshot) {
     statusEl.textContent = "Ignore rule created.";
 
     await runScan();
-    await loadRules();
-    await loadSnapshotHistory();
   } catch (err) {
-    statusEl.textContent = "Failed to create ignore rule.";
-    console.error(err);
+    if (err.status === 429) {
+      statusEl.textContent = "Rate limit hit. Cooling down for a few seconds.";
+    } else {
+      statusEl.textContent = "Failed to create ignore rule.";
+    }
+     console.error("[SENTRY] Failed to create ignore rule", err);
+
+    throw err;
   }
 }
 
@@ -486,6 +590,10 @@ async function loadSnapshotHistory() {
     lastHistoryGroups = data.snapshot_groups || [];
     renderHistory(lastHistoryGroups);
   } catch (err) {
+    if (is429Error(err)) {
+      throw err;
+    }
+
     el.innerHTML = `<div class="sentry-empty">Failed to load history</div>`;
     console.error(err);
   }
@@ -498,6 +606,10 @@ async function loadRules() {
     const data = await loadRulesRequest();
     renderRules(data.rules || []);
   } catch (err) {
+    if (is429Error(err)) {
+      throw err;
+    }
+
     el.innerHTML = `<div class="sentry-empty">Failed to load rules</div>`;
     console.error(err);
   }
@@ -574,20 +686,35 @@ function renderRules(rules) {
   }
 
 el.innerHTML = rules.map(r => `
-  <div class="sentry-card">
-    ${r.category}:${r.source} — ${r.normalised_pattern}
+  <div class="sentry-card sentry-rule-card">
     
-    <div>
-      ${r.action === "ignore" ? "Ignored" : "Snoozed"}
+    <div class="sentry-card-top">
+      <div class="sentry-tags">
+        <span class="sentry-tag ${r.category}">
+          ${r.category.toUpperCase()}
+        </span>
+        <span class="sentry-tag source-${r.source}">
+          ${r.source}
+        </span>
+        <span class="sentry-tag rule-status">
+          ${r.action === "ignore" ? "Ignored" : "Snoozed"}
+        </span>
+      </div>
     </div>
 
-    <button 
-      class="sentry-btn ss-rule-restore" 
-      type="button"
-      data-restore-rule-id="${r.id}"
-    >
-      Restore
-    </button>
+    <div class="sentry-pattern">
+      ${r.normalised_pattern}
+    </div>
+
+    <div class="sentry-actions">
+      <button 
+        class="sentry-btn sentry-restore-btn"
+        data-restore-rule-id="${r.id}"
+      >
+        Restore
+      </button>
+    </div>
+
   </div>
 `).join("");
 }
@@ -595,25 +722,55 @@ el.innerHTML = rules.map(r => `
 async function restoreRule(ruleId) {
   const statusEl = appContainer.querySelector("#sentry-status");
 
+  async function refreshAfterRestore(message) {
+    statusEl.textContent = `${message} Refreshing...`;
+
+    try {
+      await runScan();
+      statusEl.textContent = message;
+    } catch (err) {
+      if (is429Error(err)) {
+        statusEl.textContent =
+          `${message} Rate limited while refreshing. Sentry will reload shortly.`;
+
+        startRateLimitCooldown();
+        scheduleRefreshAfterRateLimit();
+        return;
+      }
+
+      throw err;
+    }
+  }
+
   try {
     statusEl.textContent = "Restoring rule...";
 
     const csrfToken = document.querySelector("meta[name='csrf-token']")?.content;
-
     const data = await deleteRuleRequest(ruleId, csrfToken);
 
     if (!data.ok) {
-      throw new Error(data.error || "Rule was not restored");
+      const msg = data.error || "Rule was not restored";
+
+      // Rule already gone = restore effectively succeeded.
+      if (
+        msg.toLowerCase().includes("not found") ||
+        msg.toLowerCase().includes("not restored")
+      ) {
+        await refreshAfterRestore("Rule already restored.");
+        return;
+      }
+
+      throw new Error(msg);
     }
 
-    statusEl.textContent = "Rule restored.";
-
-    await runScan();
-    await loadRules();
-    await loadSnapshotHistory();
+    await refreshAfterRestore("Rule restored.");
   } catch (err) {
-    statusEl.textContent = "Failed to restore rule.";
-    console.error("[SENTRY] Failed to restore rule", err);
+    if (is429Error(err)) {
+      statusEl.textContent = "Rate limit hit. Cooling down for a few seconds.";
+    } else {
+      statusEl.textContent = "Failed to restore rule.";
+    }
+
     throw err;
   }
 }
