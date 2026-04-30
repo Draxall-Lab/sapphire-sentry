@@ -239,17 +239,56 @@ def infer_severity(snapshot: dict[str, Any]) -> str:
     return "low"
 
 
+from datetime import datetime, timezone
+
 def list_snapshots(
     status: str | None = None,
     plugin_settings: dict | None = None,
 ) -> list[dict[str, Any]]:
     state = load_state(plugin_settings)
     snapshots = state.get("snapshots", [])
+    rules = state.get("rules", [])
 
     if status:
         return [s for s in snapshots if s.get("status") == status]
 
-    return snapshots
+    now = datetime.now(timezone.utc)
+
+    active_snapshots = []
+
+    for snap in snapshots:
+        suppressed = False
+
+        for rule in rules:
+            if not rule.get("enabled"):
+                continue
+
+            if rule.get("pattern_key") != snap.get("pattern_key"):
+                continue
+
+            action = rule.get("action")
+
+            if action == "ignore":
+                suppressed = True
+                break
+
+            if action == "snooze":
+                expires_at = rule.get("expires_at")
+
+                if expires_at:
+                    try:
+                        expiry = datetime.fromisoformat(expires_at)
+                    except Exception:
+                        continue
+
+                    if expiry > now:
+                        suppressed = True
+                        break
+
+        if not suppressed:
+            active_snapshots.append(snap)
+
+    return active_snapshots
 
 def list_snapshot_groups(
     status: str | None = None,
@@ -449,6 +488,19 @@ def create_rule_from_pattern(
 ):
     state = load_state(plugin_settings)
 
+    action = action.lower().strip()
+
+    if action not in {"ignore", "snooze"}:
+        raise ValueError("action must be 'ignore' or 'snooze'")
+
+    expires_at = None
+
+    if action == "snooze":
+        if snooze_preset not in SNOOZE_PRESETS:
+            raise ValueError(f"Unknown snooze preset: {snooze_preset}")
+
+        expires_at = (utc_now() + SNOOZE_PRESETS[snooze_preset]).isoformat()
+
     rule = {
         "id": make_id("rule", state.get("rules", [])),
         "created_at": utc_now_iso(),
@@ -462,7 +514,7 @@ def create_rule_from_pattern(
         "contains_all": [],
         "contains_any": [],
         "excludes": [],
-        "expires_at": None,
+        "expires_at": expires_at,
         "snooze_preset": snooze_preset if action == "snooze" else None,
         "reason": reason or "",
         "created_from_snapshot_id": snapshot.get("id"),
@@ -472,7 +524,6 @@ def create_rule_from_pattern(
     save_state(state, plugin_settings)
 
     return rule
-
 
 def filter_suppressed_snapshots(
     snapshots: list[dict[str, Any]],

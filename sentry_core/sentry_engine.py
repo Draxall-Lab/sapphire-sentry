@@ -16,6 +16,9 @@ from datetime import datetime
 from .path_utils import get_sapphire_root
 from .detector import detect_snapshots
 
+from datetime import datetime, timezone
+from sentry_core.storage import load_state, save_state
+
 
 # --- Config ---
 
@@ -73,11 +76,16 @@ def generate_scan_id() -> str:
 def run_scan(max_lines: int = DEFAULT_MAX_LINES, plugin_settings: dict | None = None) -> dict:
     """
     Execute a Sentry scan across all known log sources.
+
+    Stores all detected snapshots in history, but only returns snapshots
+    that are not currently ignored or snoozed.
     """
 
     root = get_sapphire_root(plugin_settings)
 
     scan_id = generate_scan_id()
+    scan_timestamp = datetime.now(timezone.utc).isoformat()
+
     all_snapshots = []
     sources_scanned = 0
 
@@ -94,18 +102,94 @@ def run_scan(max_lines: int = DEFAULT_MAX_LINES, plugin_settings: dict | None = 
 
         snapshots = detect_snapshots(lines, source=source)
 
+        for snap in snapshots:
+            snap["scan_id"] = scan_id
+            snap["created_at"] = scan_timestamp
+            snap["updated_at"] = scan_timestamp
+            snap.setdefault("status", "active")
+
         all_snapshots.extend(snapshots)
         sources_scanned += 1
 
-    result = {
+    state = load_state(plugin_settings)
+
+    existing_snapshots = state.get("snapshots", [])
+    rules = state.get("rules", [])
+
+    now = datetime.now(timezone.utc)
+
+    active_rules = []
+    changed_rules = False
+
+    for rule in rules:
+        if not rule.get("enabled"):
+            active_rules.append(rule)
+            continue
+
+        action = rule.get("action")
+
+        if action == "snooze":
+            expires_at = rule.get("expires_at")
+
+            if not expires_at:
+                changed_rules = True
+                continue
+
+            try:
+                expiry = datetime.fromisoformat(expires_at)
+            except Exception:
+                changed_rules = True
+                continue
+
+            if expiry <= now:
+                changed_rules = True
+                continue
+
+        active_rules.append(rule)
+
+    def is_suppressed(snapshot: dict) -> bool:
+        for rule in active_rules:
+            if not rule.get("enabled"):
+                continue
+
+            action = rule.get("action")
+
+            if action not in {"ignore", "snooze"}:
+                continue
+
+            if rule.get("pattern_key") != snapshot.get("pattern_key"):
+                continue
+
+            if rule.get("source") and rule.get("source") != snapshot.get("source"):
+                continue
+
+            if rule.get("category") and rule.get("category") != snapshot.get("category"):
+                continue
+
+            return True
+
+        return False
+
+    visible_snapshots = [
+        snap for snap in all_snapshots
+        if not is_suppressed(snap)
+    ]
+
+    state["snapshots"] = existing_snapshots + all_snapshots
+    state["rules"] = active_rules
+
+    save_state(state, plugin_settings)
+
+    return {
         "ok": True,
         "scan_id": scan_id,
-        "timestamp": datetime.utcnow().isoformat(),
-        "snapshots": all_snapshots,
+        "timestamp": scan_timestamp,
+        "snapshots": visible_snapshots,
         "summary": {
             "sources_scanned": sources_scanned,
             "snapshots_found": len(all_snapshots),
+            "snapshots_visible": len(visible_snapshots),
+            "snapshots_suppressed": len(all_snapshots) - len(visible_snapshots),
+            "expired_snoozes_removed": changed_rules,
         },
     }
-
-    return result

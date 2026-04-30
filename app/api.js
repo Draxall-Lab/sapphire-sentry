@@ -43,6 +43,33 @@ export async function loadRulesRequest() {
   return res.json();
 }
 
+export async function createSnoozeRuleRequest(snapshot, snoozePreset, csrfToken) {
+  const res = await fetch("/api/plugin/sapphire-sentry/rules/create", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {})
+    },
+    body: JSON.stringify({
+      snapshot_id: snapshot.id || null,
+      snapshot: {
+        id: snapshot.id || null,
+        source: snapshot.source,
+        category: snapshot.category,
+        pattern_key: snapshot.pattern_key,
+        normalised_pattern: snapshot.normalised_pattern
+      },
+      action: "snooze",
+      snooze_preset: snoozePreset,
+      reason: "Snoozed from Sentry UI"
+    })
+  });
+
+  await assertOk(res);
+
+  return res.json();
+}
+
 export async function createIgnoreRuleRequest(snapshot, csrfToken) {
   const res = await fetch("/api/plugin/sapphire-sentry/rules/create", {
     method: "POST",

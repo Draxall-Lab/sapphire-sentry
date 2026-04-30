@@ -108,6 +108,7 @@ export function wireEvents({
   rerenderHistory,
   onIgnore,
   onRestore,
+  onSnooze
 }) {
   appContainer
     .querySelector("#sentry-scan-btn")
@@ -122,46 +123,122 @@ export function wireEvents({
     });
 
   appContainer.addEventListener("click", async (event) => {
-    const ignoreBtn = event.target.closest("[data-ignore]");
+    
+    const snoozeMenuBtn = event.target.closest("[data-sentry-action='snooze-menu']");
 
-  if (ignoreBtn) {
-  const patternKey = ignoreBtn.dataset.patternKey;
-  if (!patternKey) return;
+    if (snoozeMenuBtn) {
+      const patternKey = snoozeMenuBtn.dataset.patternKey;
+      if (!patternKey) return;
+
+      snoozeMenuBtn.outerHTML = `
+        <div class="sentry-snooze-options">
+        <button class="sentry-btn sentry-snooze-preset" data-snooze-preset="1h" data-pattern-key="${patternKey}">1h</button>
+        <button class="sentry-btn sentry-snooze-preset" data-snooze-preset="6h" data-pattern-key="${patternKey}">6h</button>
+        <button class="sentry-btn sentry-snooze-preset" data-snooze-preset="24h" data-pattern-key="${patternKey}">24h</button>
+        </div>
+      `;
+
+    return;
+  }
+
+  const snoozePresetBtn = event.target.closest("[data-snooze-preset]");
+
+if (snoozePresetBtn) {
+  const patternKey = snoozePresetBtn.dataset.patternKey;
+  const snoozePreset = snoozePresetBtn.dataset.snoozePreset;
+
+  let durationSeconds;
+
+  switch (snoozePreset) {
+    case "1h":
+      durationSeconds = 3600;
+      break;
+    case "6h":
+      durationSeconds = 21600;
+      break;
+    case "24h":
+      durationSeconds = 86400;
+      break;
+    default:
+      return;
+  }
+
+  if (!patternKey || !durationSeconds) return;
 
   try {
     const ran = await withActionLock(async () => {
-      ignoreBtn.disabled = true;
-      ignoreBtn.textContent = "Ignoring...";
+      snoozePresetBtn.disabled = true;
+      snoozePresetBtn.textContent = "Snoozing...";
 
-      await onIgnore(patternKey);
+      await onSnooze(patternKey, snoozePreset);
     });
 
     if (!ran) {
-      showBlocked(ignoreBtn, "Ignore");
+      showBlocked(snoozePresetBtn, "Snooze");
       return;
     }
 
-    // Success should re-render/remove this incident card.
-    if (ignoreBtn.isConnected) {
-      ignoreBtn.disabled = false;
-      ignoreBtn.textContent = "Ignore";
+    if (snoozePresetBtn.isConnected) {
+      snoozePresetBtn.disabled = false;
+      snoozePresetBtn.textContent = "Snooze";
     }
   } catch (err) {
-    console.error("[SENTRY] Ignore failed", err);
+    console.error("[SENTRY] Snooze failed", err);
 
     if (is429Error(err)) {
-      showRateLimited(ignoreBtn, "Ignore");
+      showRateLimited(snoozePresetBtn, "Snooze");
       return;
     }
 
-    if (ignoreBtn.isConnected) {
-      ignoreBtn.disabled = false;
-      ignoreBtn.textContent = "Ignore";
+    if (snoozePresetBtn.isConnected) {
+      snoozePresetBtn.disabled = false;
+      snoozePresetBtn.textContent = "Snooze";
     }
   }
 
   return;
 }
+    
+    const ignoreBtn = event.target.closest("[data-ignore]");
+
+    if (ignoreBtn) {
+      const patternKey = ignoreBtn.dataset.patternKey;
+      if (!patternKey) return;
+
+      try {
+        const ran = await withActionLock(async () => {
+        ignoreBtn.disabled = true;
+        ignoreBtn.textContent = "Ignoring...";
+
+        await onIgnore(patternKey);
+      });
+
+      if (!ran) {
+        showBlocked(ignoreBtn, "Ignore");
+        return;
+      }
+
+      // Success should re-render/remove this incident card.
+      if (ignoreBtn.isConnected) {
+        ignoreBtn.disabled = false;
+        ignoreBtn.textContent = "Ignore";
+      }
+    } catch (err) {
+      console.error("[SENTRY] Ignore failed", err);
+
+      if (is429Error(err)) {
+        showRateLimited(ignoreBtn, "Ignore");
+        return;
+      }
+
+      if (ignoreBtn.isConnected) {
+        ignoreBtn.disabled = false;
+        ignoreBtn.textContent = "Ignore";
+      }
+    }
+
+    return;
+  }
 
     const restoreBtn = event.target.closest("[data-restore-rule-id]");
 

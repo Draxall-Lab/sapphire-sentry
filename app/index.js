@@ -13,7 +13,8 @@ import {
   loadSnapshotGroupsRequest,
   loadRulesRequest,
   createIgnoreRuleRequest,
-  deleteRuleRequest
+  deleteRuleRequest,
+  createSnoozeRuleRequest
 } from "./api.js";
 
 import {
@@ -208,6 +209,12 @@ export function render(container) {
         }
 
         /* Snapshot group container */
+
+        #sentry-history {
+          margin-top: 1.5rem;
+          opacity: 0.95;
+        }
+        
         .sentry-history-group {
           border: 1px solid var(--border, #333);
           border-radius: 14px;
@@ -453,19 +460,25 @@ export function render(container) {
       <div id="sentry-results" class="sentry-card-list">
         <div class="sentry-empty">Run a scan to see incident snapshots.</div>
       </div>
-      <h2 class="sentry-section-title">Snapshot History</h2>
-      <div id="sentry-history" class="sentry-card-list">
-        <div class="sentry-empty">Loading history...</div>
+      
+      <h2 class="sentry-section-title">Snoozed Rules</h2>
+      <div id="sentry-snoozed-rules" class="sentry-card-list">
+        <div class="sentry-empty">No snoozed rules.</div>
       </div>
-
+      
       <h2 class="sentry-section-title">Suppressed Rules</h2>
       <div id="sentry-rules" class="sentry-card-list">
         <div class="sentry-empty">Loading rules...</div>
       </div>
+
+      <h2 class="sentry-section-title">Snapshot History</h2>
+      <div id="sentry-history" class="sentry-card-list">
+        <div class="sentry-empty">Loading history...</div>
+      </div>
     </div>
   `;
 
-  wireEvents({
+ wireEvents({
   appContainer,
   runScan,
   setGroupMode: (mode) => {
@@ -482,6 +495,12 @@ export function render(container) {
     if (!snap) return;
 
     await ignoreSnapshot(snap);
+  },
+  onSnooze: async (patternKey, snoozePreset) => {
+    const snap = lastSnapshots.find(s => s.pattern_key === patternKey);
+    if (!snap) return;
+
+    await snoozeSnapshot(snap, snoozePreset);
   },
   onRestore: async (ruleId) => {
     await restoreRule(ruleId);
@@ -544,6 +563,43 @@ try {
 
 }
 
+async function snoozeSnapshot(snapshot, snoozePreset) {
+  if (!snapshot) {
+    return;
+  }
+
+  const statusEl = appContainer.querySelector("#sentry-status");
+
+  try {
+    statusEl.textContent = `Snoozing for ${snoozePreset}...`;
+
+    const csrfToken = document.querySelector("meta[name='csrf-token']")?.content;
+
+    const data = await createSnoozeRuleRequest(snapshot, snoozePreset, csrfToken);
+
+    // Debug
+    console.log("[SENTRY] Snooze response", data);
+    // End Debug
+
+    if (!data.ok) {
+      throw new Error(data.error || "Failed to create snooze rule");
+    }
+
+    statusEl.textContent = "Snooze rule created.";
+
+    await runScan();
+  } catch (err) {
+    if (err.status === 429) {
+      statusEl.textContent = "Rate limit hit. Cooling down for a few seconds.";
+    } else {
+      statusEl.textContent = "Failed to create snooze rule.";
+    }
+
+    console.error("[SENTRY] Failed to create snooze rule", err);
+    throw err;
+  }
+}
+
 async function ignoreSnapshot(snapshot) {
   if (!snapshot) {
     return;
@@ -561,10 +617,6 @@ async function ignoreSnapshot(snapshot) {
     if (!data.ok) {
       throw new Error(data.error || "Failed to create rule");
   }
-
-    if (!data.ok) {
-      throw new Error(data.error || "Failed to create rule");
-    }
 
     statusEl.textContent = "Ignore rule created.";
 
@@ -678,45 +730,85 @@ function renderHistory(groups) {
 }
 
 function renderRules(rules) {
-  const el = appContainer.querySelector("#sentry-rules");
+  const snoozedEl = appContainer.querySelector("#sentry-snoozed-rules");
+  const suppressedEl = appContainer.querySelector("#sentry-rules");
+
+  const snoozedRules = rules
+    .filter(r => r.action === "snooze")
+    .sort((a, b) => new Date(a.expires_at || 0) - new Date(b.expires_at || 0));
+
+  const suppressedRules = rules
+    .filter(r => r.action !== "snooze")
+    .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+
+  renderRuleList(snoozedEl, snoozedRules, "No snoozed rules.");
+  renderRuleList(suppressedEl, suppressedRules, "No suppressed rules.");
+}
+
+function formatSentryDate(value) {
+  if (!value) return "";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString(undefined, {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function renderRuleList(el, rules, emptyMessage) {
+  if (!el) return;
 
   if (!rules.length) {
-    el.innerHTML = `<div class="sentry-empty">No rules yet</div>`;
+    el.innerHTML = `<div class="sentry-empty">${emptyMessage}</div>`;
     return;
   }
 
-el.innerHTML = rules.map(r => `
-  <div class="sentry-card sentry-rule-card">
-    
-    <div class="sentry-card-top">
-      <div class="sentry-tags">
-        <span class="sentry-tag ${r.category}">
-          ${r.category.toUpperCase()}
-        </span>
-        <span class="sentry-tag source-${r.source}">
-          ${r.source}
-        </span>
-        <span class="sentry-tag rule-status">
-          ${r.action === "ignore" ? "Ignored" : "Snoozed"}
-        </span>
+  el.innerHTML = rules.map(r => `
+    <div class="sentry-card sentry-rule-card ${r.action === "snooze" ? "sentry-snooze-card" : "sentry-suppressed-card"}">
+      
+      <div class="sentry-card-top">
+        <div class="sentry-tags">
+          <span class="sentry-tag ${r.category}">
+            ${r.category.toUpperCase()}
+          </span>
+          <span class="sentry-tag source-${r.source}">
+            ${r.source}
+          </span>
+          <span class="sentry-tag rule-status">
+            ${r.action === "snooze" ? "Snoozed" : "Ignored"}
+          </span>
+        </div>
       </div>
-    </div>
 
-    <div class="sentry-pattern">
-      ${r.normalised_pattern}
-    </div>
+      <div class="sentry-pattern">
+        ${r.normalised_pattern}
+      </div>
 
-    <div class="sentry-actions">
-      <button 
-        class="sentry-btn sentry-restore-btn"
-        data-restore-rule-id="${r.id}"
-      >
-        Restore
-      </button>
-    </div>
+      ${r.action === "snooze" && r.expires_at ? `
+        <div class="sentry-rule-meta">
+          Snoozed until ${formatSentryDate(r.expires_at)}
+        </div>
+      ` : ""}
 
-  </div>
-`).join("");
+      <div class="sentry-actions">
+        <button 
+          class="sentry-btn sentry-restore-btn"
+          data-restore-rule-id="${r.id}"
+        >
+          Restore
+        </button>
+      </div>
+
+    </div>
+  `).join("");
 }
 
 async function restoreRule(ruleId) {

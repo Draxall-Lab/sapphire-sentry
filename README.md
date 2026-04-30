@@ -1,5 +1,7 @@
 # Sapphire Sentry
 
+Incident snapshots and noise control for Sapphire logs.
+
 Sapphire Sentry is a plugin for Sapphire that transforms raw logs into structured, actionable incident snapshots.
 
 It focuses on detecting patterns, grouping noise, and giving users control over what matters.

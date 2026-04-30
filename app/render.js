@@ -124,7 +124,14 @@ export function createSnapshotCard(snap, onIgnoreSnapshot) {
       >
         Ignore
       </button>
-      <button class="sentry-btn" disabled>Snooze</button>
+      
+      <button 
+        class="sentry-btn sentry-snooze-btn"
+        data-sentry-action="snooze-menu"
+        data-pattern-key="${snap.pattern_key}"
+      >
+        Snooze
+      </button>
     </div>
   `;
 
