@@ -108,3 +108,15 @@ export async function deleteRuleRequest(ruleId, csrfToken) {
 
   return res.json();
 }
+
+export async function getPluginsRequest() {
+  const res = await fetch("/api/webui/plugins", {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json"
+    }
+  });
+
+  await assertOk(res);
+  return res.json();
+}

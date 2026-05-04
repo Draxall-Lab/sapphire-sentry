@@ -14,7 +14,8 @@ import {
   loadRulesRequest,
   createIgnoreRuleRequest,
   deleteRuleRequest,
-  createSnoozeRuleRequest
+  createSnoozeRuleRequest,
+  getPluginsRequest,
 } from "./api.js";
 
 import {
@@ -29,7 +30,64 @@ import {
   startRateLimitCooldown
 } from "./events.js";
 
+import { versionAtLeast } from "./utils.js";
+
 let pendingRefreshTimer = null;
+
+let logDoctorAvailability = {
+  available: false,
+  reason: "Checking Log Doctor..."
+};
+
+const LOG_DOCTOR_MIN_VERSION = "0.4.3";
+
+async function checkLogDoctorAvailability() {
+  try {
+    const data = await getPluginsRequest();
+    const plugins = Array.isArray(data.plugins) ? data.plugins : [];
+
+    const logDoctor = plugins.find((plugin) =>
+      plugin.name === "log-doctor" ||
+      plugin.display_name === "Log Doctor"
+    );
+
+    if (!logDoctor) {
+      return {
+        available: false,
+        reason: "Install Log Doctor to analyse incidents."
+      };
+    }
+
+    if (!logDoctor.enabled) {
+      return {
+        available: false,
+        reason: "Enable Log Doctor to analyse incidents."
+      };
+    }
+
+    const version = logDoctor.version || "";
+
+    if (!versionAtLeast(version, LOG_DOCTOR_MIN_VERSION)) {
+      return {
+        available: false,
+        reason: `Log Doctor v${LOG_DOCTOR_MIN_VERSION}+ required (current: ${version})`
+      };
+    }
+
+    return {
+      available: true,
+      reason: "Open in Log Doctor"
+    };
+
+  } catch (err) {
+    console.error("[SENTRY] Log Doctor check failed", err);
+
+    return {
+      available: false,
+      reason: "Unable to check Log Doctor"
+    };
+  }
+}
 
 function scheduleRefreshAfterRateLimit() {
   clearTimeout(pendingRefreshTimer);
@@ -353,6 +411,7 @@ export function render(container) {
           display: flex;
           gap: 8px;
           flex-wrap: wrap;
+          margin-top: 0.5rem;
         }
 
         .sentry-empty,
@@ -388,7 +447,17 @@ export function render(container) {
         .sentry-rule-card {
           opacity: 0.85;
           border-style: dashed;
+          display: flex;
+          flex-direction: column;
+          gap: 0.5rem;
         }
+
+        .sentry-rule-meta {
+          margin-top: 0.25rem;
+          margin-bottom: 0.25rem;
+          font-size: 0.9em;
+          opacity: 0.85;
+}
 
         .sentry-tag.rule-status {
           background: rgba(255,255,255,0.05);
@@ -488,7 +557,7 @@ export function render(container) {
     renderSnapshots(appContainer, lastSnapshots, currentGroupMode, ignoreSnapshot);
   },
   rerenderHistory: () => {
-    renderHistory(lastHistoryGroups);
+    renderHistory(lastHistoryGroups, logDoctorAvailability);
   },
   onIgnore: async (patternKey) => {
     const snap = lastSnapshots.find(s => s.pattern_key === patternKey);
@@ -509,6 +578,20 @@ export function render(container) {
 
   loadSnapshotHistory();
   loadRules();
+
+  checkLogDoctorAvailability().then((availability) => {
+  logDoctorAvailability = availability;
+
+  renderSnapshots(
+    appContainer,
+    lastSnapshots,
+    currentGroupMode,
+    ignoreSnapshot,
+    logDoctorAvailability
+  );
+
+  renderHistory(lastHistoryGroups, logDoctorAvailability);
+});
 }
 
 export function cleanup() {
@@ -534,7 +617,7 @@ async function runScan() {
     lastSnapshots = Array.isArray(data.snapshots) ? data.snapshots : [];
 
     renderSummary(appContainer, data.summary || {});
-    renderSnapshots(appContainer, lastSnapshots, currentGroupMode, ignoreSnapshot);
+    renderSnapshots(appContainer, lastSnapshots, currentGroupMode, ignoreSnapshot, logDoctorAvailability);
 
     statusEl.textContent = `Scan complete: ${data.scan_id || "unknown scan"}`;
 
@@ -640,7 +723,7 @@ async function loadSnapshotHistory() {
     const data = await loadSnapshotGroupsRequest();
 
     lastHistoryGroups = data.snapshot_groups || [];
-    renderHistory(lastHistoryGroups);
+    renderHistory(lastHistoryGroups, logDoctorAvailability);
   } catch (err) {
     if (is429Error(err)) {
       throw err;
@@ -667,7 +750,7 @@ async function loadRules() {
   }
 }
 
-function renderHistory(groups) {
+function renderHistory(groups, logDocotorAvailability) {
   const el = appContainer.querySelector("#sentry-history");
 
   if (!groups.length) {
@@ -707,7 +790,7 @@ function renderHistory(groups) {
     const sortedItems = sortHistoryItems(group.items || [], currentGroupMode);
 
     for (const snap of sortedItems) {
-      body.appendChild(createSnapshotCard(snap));
+      body.appendChild(createSnapshotCard(snap, null, logDoctorAvailability));
     }
 
     header.addEventListener("click", () => {

@@ -20,7 +20,7 @@ export function renderSummary(appContainer, summary) {
     summary.stored_rules ?? 0;
 }
 
-export function renderSnapshots(appContainer, snapshots, currentGroupMode, onIgnoreSnapshot) {
+export function renderSnapshots(appContainer, snapshots, currentGroupMode, onIgnoreSnapshot, logDoctorAvailability) {
   const resultsEl = appContainer.querySelector("#sentry-results");
 
   if (!snapshots.length) {
@@ -36,22 +36,29 @@ export function renderSnapshots(appContainer, snapshots, currentGroupMode, onIgn
   }
 
   if (currentGroupMode === "source") {
-    renderGroupedSnapshots(resultsEl, snapshots, "source", onIgnoreSnapshot);
+    renderGroupedSnapshots(resultsEl, snapshots, "source", onIgnoreSnapshot, logDoctorAvailability);
     return;
   }
 
-  renderFlatSnapshots(resultsEl, snapshots, onIgnoreSnapshot);
+  renderFlatSnapshots(resultsEl, snapshots, onIgnoreSnapshot, logDoctorAvailability);
 }
 
-export function renderFlatSnapshots(container, snapshots, onIgnoreSnapshot) {
+export function renderFlatSnapshots(
+  container,
+  snapshots,
+  onIgnoreSnapshot,
+  logDoctorAvailability
+) {
   const sorted = sortByFrequency(snapshots);
 
   for (const snap of sorted) {
-    container.appendChild(createSnapshotCard(snap, onIgnoreSnapshot));
+    container.appendChild(
+      createSnapshotCard(snap, onIgnoreSnapshot, logDoctorAvailability)
+    );
   }
 }
 
-export function renderGroupedSnapshots(container, snapshots, key, onIgnoreSnapshot){
+export function renderGroupedSnapshots(container, snapshots, key, onIgnoreSnapshot, logDoctorAvailability) {
   const groups = groupSnapshots(snapshots, key);
 
   const sortedGroupNames = Object.keys(groups).sort((a, b) => {
@@ -82,7 +89,7 @@ export function renderGroupedSnapshots(container, snapshots, key, onIgnoreSnapsh
     groupEl.className = "sentry-group";
 
     for (const snap of groupItems) {
-      groupEl.appendChild(createSnapshotCard(snap, onIgnoreSnapshot));
+      groupEl.appendChild(createSnapshotCard(snap, onIgnoreSnapshot, logDoctorAvailability));
     }
 
     container.appendChild(heading);
@@ -90,7 +97,7 @@ export function renderGroupedSnapshots(container, snapshots, key, onIgnoreSnapsh
   }
 }
 
-export function createSnapshotCard(snap, onIgnoreSnapshot) {
+export function createSnapshotCard(snap, onIgnoreSnapshot, logDoctorAvailability) {
   const card = document.createElement("div");
   card.className = "sentry-card";
 
@@ -98,6 +105,11 @@ export function createSnapshotCard(snap, onIgnoreSnapshot) {
   const source = snap.source || "unknown";
   const count = snap.count ?? 1;
   const sourceClass = `source-${(source || "unknown").toLowerCase()}`;
+
+  logDoctorAvailability = logDoctorAvailability || {
+  available: false,
+  reason: "Checking Log Doctor..."
+};
 
   card.innerHTML = `
     <div class="sentry-card-top">
@@ -115,7 +127,16 @@ export function createSnapshotCard(snap, onIgnoreSnapshot) {
     </div>
 
     <div class="sentry-actions">
-      <button class="sentry-btn" disabled>Analyse</button>
+      <button 
+        class="sentry-btn sentry-analyse-btn"
+        data-sentry-action="analyse"
+        data-pattern-key="${snap.pattern_key}"
+        ${logDoctorAvailability.available ? "" : "disabled"}
+        title="${logDoctorAvailability.reason}"
+      >
+        Analyse
+      </button>
+      
       <button 
         class="sentry-btn sentry-ignore-btn" 
         type="button"

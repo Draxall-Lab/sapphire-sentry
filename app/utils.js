@@ -74,3 +74,27 @@ export function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+export function normaliseVersion(version) {
+  return String(version || "")
+    .trim()
+    .replace(/^v/i, "");
+}
+
+export function compareVersions(a, b) {
+  const pa = normaliseVersion(a).split(".").map(Number);
+  const pb = normaliseVersion(b).split(".").map(Number);
+
+  for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
+    const na = Number.isFinite(pa[i]) ? pa[i] : 0;
+    const nb = Number.isFinite(pb[i]) ? pb[i] : 0;
+
+    if (na > nb) return 1;
+    if (na < nb) return -1;
+  }
+
+  return 0;
+}
+
+export function versionAtLeast(version, minimum) {
+  return compareVersions(version, minimum) >= 0;
+}
