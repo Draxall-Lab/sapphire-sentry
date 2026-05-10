@@ -6,6 +6,14 @@ import {
   totalCount
 } from "./utils.js";
 
+function escAttr(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 export function renderSummary(appContainer, summary) {
   appContainer.querySelector("#sentry-stat-sources").textContent =
     summary.sources_scanned ?? 0;
@@ -130,7 +138,7 @@ export function createSnapshotCard(snap, onIgnoreSnapshot, logDoctorAvailability
       <button 
         class="sentry-btn sentry-analyse-btn"
         data-sentry-action="analyse"
-        data-pattern-key="${snap.pattern_key}"
+        data-pattern-key="${escAttr(snap.pattern_key)}"
         ${logDoctorAvailability.available ? "" : "disabled"}
         title="${logDoctorAvailability.reason}"
       >

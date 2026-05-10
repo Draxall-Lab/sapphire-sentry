@@ -193,3 +193,25 @@ def run_scan(max_lines: int = DEFAULT_MAX_LINES, plugin_settings: dict | None = 
             "expired_snoozes_removed": changed_rules,
         },
     }
+
+def sentry_scan(arguments=None, plugin_settings=None):
+    """
+    Tool entrypoint for scheduled/manual Sapphire Sentry scans.
+    """
+
+    arguments = arguments or {}
+
+    max_lines = int(arguments.get("max_lines", DEFAULT_MAX_LINES))
+
+    result = run_scan(
+        max_lines=max_lines,
+        plugin_settings=plugin_settings,
+    )
+
+    scan_id = result.get("scan_id", "unknown")
+    incidents = len(result.get("snapshots", []))
+
+    return (
+        f"Sapphire Sentry scan complete. "
+        f"Snapshot group {scan_id} stored with {incidents} active incident(s)."
+    )

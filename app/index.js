@@ -32,6 +32,15 @@ import {
 
 import { versionAtLeast } from "./utils.js";
 
+import { handoffToLogDoctor } from "./logDoctorHandoff.js";
+
+import {
+  setInstalledVersion,
+  setLatestVersion,
+  isUpdateAvailable,
+  pluginVersionLabel
+} from "./version.js";
+
 let pendingRefreshTimer = null;
 
 let logDoctorAvailability = {
@@ -39,7 +48,34 @@ let logDoctorAvailability = {
   reason: "Checking Log Doctor..."
 };
 
-const LOG_DOCTOR_MIN_VERSION = "0.4.3";
+const LOG_DOCTOR_MIN_VERSION = "0.5.0";
+
+async function initVersionAwareness() {
+  try {
+    const meta = await loadPluginMeta();
+    setInstalledVersion(meta?.version || null);
+  } catch (err) {}
+
+  try {
+    const update = await checkPluginUpdate();
+    setLatestVersion(update?.remote_version || null);
+  } catch (err) {}
+
+  updateHeaderStatus();
+}
+
+function updateHeaderStatus() {
+  const statusEl = appContainer.querySelector("#sentry-subtitle");
+  if (!statusEl) return;
+
+  let html = `Incident snapshots and noise filtering for Sapphire logs.`;
+
+  if (isUpdateAvailable()) {
+    html += ` • <span class="sentry-update">v${getLatestVersion()} Update Available</span>`;
+  }
+
+  statusEl.innerHTML = html;
+}
 
 async function checkLogDoctorAvailability() {
   try {
@@ -149,6 +185,11 @@ export function render(container) {
         .sentry-title p {
           margin: 4px 0 0;
           color: var(--text-muted, #888);
+        }
+
+        .sentry-update {
+          color: var(--ld-accent-tertiary, #f59e0b);
+          font-weight: 600;
         }
 
         .sentry-controls {
@@ -479,7 +520,7 @@ export function render(container) {
       <div class="sentry-header">
         <div class="sentry-title">
           <h1>🛡️ Sapphire Sentry</h1>
-          <p>Incident snapshots and noise filtering for Sapphire logs.</p>
+          <p id="sentry-subtitle">Incident snapshots and noise filtering for Sapphire logs.</p>
 
           <div class="sentry-status-help">
             <p class="help-intro">Actions may briefly pause if used quickly:</p>
@@ -547,6 +588,37 @@ export function render(container) {
     </div>
   `;
 
+  function findSnapshotByPatternKey(patternKey) {
+  const active = (lastSnapshots || []).find((s) => {
+    const rawKey = s.pattern_key || s.patternKey;
+    const compositeKey = `${s.category}:${s.source}:${s.normalised_pattern || s.normalisedPattern}`;
+
+    return rawKey === patternKey || compositeKey === patternKey;
+  });
+
+  if (active) return active;
+
+  for (const group of lastHistoryGroups || []) {
+    const snapshots =
+      group.snapshots ||
+      group.items ||
+      group.incidents ||
+      group.entries ||
+      [];
+
+    const match = snapshots.find((s) => {
+      const rawKey = s.pattern_key || s.patternKey;
+      const compositeKey = `${s.category}:${s.source}:${s.normalised_pattern || s.normalisedPattern}`;
+
+      return rawKey === patternKey || compositeKey === patternKey;
+    });
+
+    if (match) return match;
+  }
+
+  return null;
+}
+
  wireEvents({
   appContainer,
   runScan,
@@ -571,6 +643,16 @@ export function render(container) {
 
     await snoozeSnapshot(snap, snoozePreset);
   },
+  onAnalyse: (patternKey) => {
+    const snap = findSnapshotByPatternKey(patternKey);
+
+    if (!snap) {
+    
+      return;
+    }
+
+  handoffToLogDoctor(snap);
+},
   onRestore: async (ruleId) => {
     await restoreRule(ruleId);
   },
@@ -659,10 +741,6 @@ async function snoozeSnapshot(snapshot, snoozePreset) {
     const csrfToken = document.querySelector("meta[name='csrf-token']")?.content;
 
     const data = await createSnoozeRuleRequest(snapshot, snoozePreset, csrfToken);
-
-    // Debug
-    console.log("[SENTRY] Snooze response", data);
-    // End Debug
 
     if (!data.ok) {
       throw new Error(data.error || "Failed to create snooze rule");

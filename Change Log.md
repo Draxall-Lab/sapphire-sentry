@@ -9,6 +9,48 @@ This project loosely follows semantic versioning:
 
 ---
 
+## [v0.5.3] – 2026-05-10
+
+### Added
+- Sapphire Sentry → Log Doctor investigation handoff
+- Snapshot-aware Log Doctor analysis workflow
+- Historical snapshot fallback analysis support
+- Persistent Sentry investigation context across refresh/navigation
+- Scheduled scan support via `sentry_scan` tool
+- Plugin version awareness and update notification
+
+### Changed
+- Analyse now opens scoped Log Doctor investigations directly from:
+  - Active Incidents
+  - Snapshot History
+- Sentry handoff searches now use all-term matching for improved precision
+- Header status line now supports conditional update notifications
+- Snapshot analysis workflow now correctly distinguishes between:
+  - live current log evidence
+  - historical incident evidence
+
+### Fixed
+- Update availability logic now correctly compares semantic versions
+- Snapshot investigation handling when matching log lines no longer exist
+- Result trimming now respects configured max-results limits
+
+### UI & Workflow
+- Added Quick Start guidance to clarify investigation workflow
+- Improved onboarding for:
+  - full-view analysis
+  - section investigation
+  - incident-level analysis
+
+### Notes
+- Sentry now functions as the incident detection and memory layer for Log Doctor investigations
+- Historical incidents can now be analysed even after log rotation or expiry
+
+Mental model:
+Sentry = radar
+Log Doctor = microscope
+
+---
+
 ## [v0.5.2] – 2026-04-30
 
 ### Added

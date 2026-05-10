@@ -2,7 +2,7 @@
   "name": "sapphire-sentry",
   "display_name": "Sapphire Sentry",
   "short_name": "Sentry",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Incident-based awareness for Sapphire. Detects notable log events, captures context snapshots, and helps you decide what matters.",
   "author": "Draxall",
   "license": "MIT",
@@ -45,6 +45,9 @@
         "path": "rules/{rule_id}",
         "handler": "routes/incidents.py:delete_rule_route"
     }
+    ],
+    "tools": [
+      "tools/sentry_scan.py"
     ],
     "app": {
       "label": "Sapphire Sentry",

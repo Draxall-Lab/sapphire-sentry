@@ -108,7 +108,8 @@ export function wireEvents({
   rerenderHistory,
   onIgnore,
   onRestore,
-  onSnooze
+  onSnooze,
+  onAnalyse
 }) {
   appContainer
     .querySelector("#sentry-scan-btn")
@@ -123,6 +124,16 @@ export function wireEvents({
     });
 
   appContainer.addEventListener("click", async (event) => {
+
+    const analyseBtn = event.target.closest("[data-sentry-action='analyse']");
+
+    if (analyseBtn) {
+      const patternKey = analyseBtn.dataset.patternKey;
+      if (!patternKey || !onAnalyse) return;
+
+      onAnalyse(patternKey);
+      return;
+  }
     
     const snoozeMenuBtn = event.target.closest("[data-sentry-action='snooze-menu']");
 
