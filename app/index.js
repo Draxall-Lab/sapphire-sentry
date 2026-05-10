@@ -16,6 +16,8 @@ import {
   deleteRuleRequest,
   createSnoozeRuleRequest,
   getPluginsRequest,
+  loadPluginMeta,
+  checkPluginUpdate
 } from "./api.js";
 
 import {
@@ -37,6 +39,8 @@ import { handoffToLogDoctor } from "./logDoctorHandoff.js";
 import {
   setInstalledVersion,
   setLatestVersion,
+  getInstalledVersion,
+  getLatestVersion,
   isUpdateAvailable,
   pluginVersionLabel
 } from "./version.js";
@@ -53,13 +57,25 @@ const LOG_DOCTOR_MIN_VERSION = "0.5.0";
 async function initVersionAwareness() {
   try {
     const meta = await loadPluginMeta();
+    console.log("[Sentry version] meta", meta);
     setInstalledVersion(meta?.version || null);
-  } catch (err) {}
+  } catch (err) {
+    console.warn("[Sentry version] meta failed", err);
+  }
 
   try {
     const update = await checkPluginUpdate();
-    setLatestVersion(update?.remote_version || null);
-  } catch (err) {}
+    console.log("[Sentry version] update", update);
+    setLatestVersion(update?.remote_version || null, update?.update_available ?? null);
+  } catch (err) {
+    console.warn("[Sentry version] update failed", err);
+  }
+
+  console.log("[Sentry version] state", {
+    installed: getInstalledVersion(),
+    latest: getLatestVersion(),
+    available: isUpdateAvailable()
+  });
 
   updateHeaderStatus();
 }
@@ -498,7 +514,7 @@ export function render(container) {
           margin-bottom: 0.25rem;
           font-size: 0.9em;
           opacity: 0.85;
-}
+        }
 
         .sentry-tag.rule-status {
           background: rgba(255,255,255,0.05);
@@ -617,6 +633,7 @@ export function render(container) {
   }
 
   return null;
+
 }
 
  wireEvents({
@@ -658,6 +675,7 @@ export function render(container) {
   },
 });
 
+  initVersionAwareness();
   loadSnapshotHistory();
   loadRules();
 
