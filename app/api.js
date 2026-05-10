@@ -120,3 +120,23 @@ export async function getPluginsRequest() {
   await assertOk(res);
   return res.json();
 }
+
+export async function loadPluginMeta() {
+  const res = await fetch("/api/plugin/sapphire-sentry/meta");
+
+  if (!res.ok) {
+    throw new Error(`Failed to load plugin meta: ${res.status}`);
+  }
+
+  return res.json();
+}
+
+export async function checkPluginUpdate() {
+  const res = await fetch("/api/plugins/sapphire-sentry/check-update");
+
+  if (!res.ok) {
+    throw new Error(`Failed to check plugin update: ${res.status}`);
+  }
+
+  return res.json();
+}

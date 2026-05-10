@@ -44,7 +44,12 @@
         "method": "DELETE",
         "path": "rules/{rule_id}",
         "handler": "routes/incidents.py:delete_rule_route"
-    }
+      },
+      {
+        "method": "GET",
+        "path": "meta",
+        "handler": "routes/meta.py:get_meta"
+      }
     ],
     "tools": [
       "tools/sentry_scan.py"
